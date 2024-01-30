@@ -1,0 +1,75 @@
+- name: Create the XML API file 
+  delegate_to: {{ server }}
+  template:
+    src: "CreateDispatchRequest.xml"
+    dest: "/home/admin/hrma/{{get.jira_ticket}}.xml"
+  with_items: "{{ get }}"
+
+- name: Query racadm until the TSR log has been created
+  become: true
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/opt/dell/srvadmin/sbin"
+  shell: bash -l racadm jobqueue view
+  register: racadm_loop
+  until: racadm_loop.stdout.find("Percent Complete=[100]") == True
+  retries: 5
+  delay: 90
+
+- name: Export the TSR log
+  become: true
+  environment:
+    PATH: "{{ ansible_env.PATH }}:/opt/dell/srvadmin/sbin"
+  shell: "bash -l racadm techsupreport export -f {{get.jira_ticket}}-TSR-LOG.zip"
+
+- name: Move the TSR log to buffer
+  fetch:
+    src: /home/admin/{{ get.jira_ticket }}-TSR-LOG.zip
+    dest: buffer/
+    flat: yes
+
+- name: Move TSR log to server with API script
+  delegate_to: {{ server }}
+  copy:
+    src: buffer/{{ get.jira_ticket }}-TSR-LOG.zip
+    dest: /home/admin/hrma/
+  with_items:
+    - hardware_rma
+
+- name: Execute the API script
+  delegate_to: {{ server }}
+  become: True
+  shell: python3 /home/admin/hrma/api_rma_dell.py --id {{ production_client }} --secret {{ production_secret}}
+  run_once: true
+
+- name: Verify if an rma case was created
+  delegate_to: {{ server }}
+  stat:
+    path: /home/admin/hrma/{{ get.jira_ticket }}.log
+  register: rma_case
+
+- name: Run the API script if it failed due to timeout
+  delegate_to: {{ server }}
+  become: True
+  shell: python3 /home/admin/hrma/api_rma_dell.py --id {{ production_client }} --secret {{ production_secret}}
+  run_once: true
+  when: rma_case.stat.exists == False
+
+- name: Read the log file to get the rma number
+  delegate_to: {{ server }}
+  shell: cat /home/admin/hrma{{ get.jira_ticket }}.log
+  register: api_return
+
+- name: Parse the rma number from the log file
+  set_fact:
+    rma_number: "{{ api_return.stdout_lines | unique | regex_findall('SR[0-9]{9}') }}"
+
+- name: Erase old data
+  delegate_to: {{ server }}
+  shell: |
+    cd /home/admin/hrma/
+    rm -rf {{ get.jira_ticket }}.log
+    rm -rf {{ get.jira_ticket }}-TSR-LOG.zip
+    rm -rf {{get.jira_ticket}}.xml
+
+- name: Update Jira and end the automation
+  include_tasks: jira.yml

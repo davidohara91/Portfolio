@@ -1,0 +1,41 @@
+- name: Create variable for ticket tags 
+  set_fact:
+    these_tags: "{{ get.ticket_tag }}"
+
+- name: Update ticket tag to close and prevent repeat automation
+  set_fact:
+    new_tags: "{{ these_tags.replace('begin_rma_automation','rma_automation_finished') }}"
+
+- name: Update the jira ticket with the new tags
+  delegate_to: 127.0.0.1
+  become: False
+  community.general.jira:
+    uri: "{{ url }}"
+    username: "{{ automation_username }}"
+    password: "{{ automation_password }}"
+    issue: "{{ get.jira_ticket }}"
+    operation: edit
+    timeout: 300
+  args:
+    fields:
+      labels: "{{ new_tags }}"
+
+- name: COMMENT TO JIRA
+  delegate_to: 127.0.0.1
+  become: False
+  community.general.jira:
+    uri: "{{ url }}"
+    username: "{{ automation_username }}"
+    password: "{{ automation_password }}"
+    issue: "{{ get.jira_ticket }}"
+    timeout: 300
+    operation: comment
+    comment: "RMA case raised #{{ rma_number }}"
+
+- name: Update the shared engineers slack channel
+  delegate_to: 127.0.0.1
+  become: False
+  slack:
+    token: {{ team_token}}
+    msg: "Hi @{{ get.engineers_name }}! RMA#{{ rma_number }} is being delivered to you soon for {{ fqdn }} in #{{ get.jira_ticket }}"
+    color: "green"     

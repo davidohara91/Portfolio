@@ -1,0 +1,12 @@
+<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:api="http://api.dell.com">
+   <soapenv:Header/>
+   <soapenv:Body>
+      <api:GetPartsbyServiceTag>
+         <api:GetPartsbyServiceTag>
+            <tem:Login>{{ login_email }}</tem:Login>
+            <tem:Password>{{ login_password }}</tem:Password>
+           <api:ServiceTag>{{ database_return['item'][serialtag].name }}</api:ServiceTag>
+         </api:GetPartsbyServiceTag>
+      </api:GetPartsbyServiceTag>
+   </soapenv:Body>
+</soapenv:Envelope>

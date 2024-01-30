@@ -1,0 +1,140 @@
+#  This YAML code works with Jira, Slack, Sunbird DCIM and Dell/HP via a Python script leveraging API's
+---
+- name: Preliminary
+  hosts: "localhost"
+  connection: "local"
+  gather_facts: false
+  vars_files:
+    - ../vars/encrypted_credential_file.yml
+  become: false
+  tasks:
+    - name: Find Matching Jiras with JQL
+      delegate_to: 127.0.0.1
+      register: issue
+      community.general.jira:
+        uri: "{{ url }}"
+        username: "{{ automation_username }}"
+        password: "{{ automation_password }}"
+        project: DC
+        operation: search
+        maxresults: 80
+        jql: '{{jql_query}}'
+      args:
+        fields:
+          summary: null
+          assignee: null
+          description: null
+          displayName: null
+          ticket_tag: null
+      run_once: True
+
+    - name: End automation if nothing is returned
+      meta: end_play
+      when: not issue.meta.issues
+
+    - name: Pull data from Jira fields
+      delegate_to: 127.0.0.1
+      run_once: True
+      set_fact:
+        filtered: "{{ filtered + [
+          {'engineers_email':item.fields.assignee.emailAddress,
+          'name':item.fields.assignee.displayName,
+          'this_jira':item.key,
+          'fqdn':item.fields.summary | regex_findall('[a-z0-9]{8,20}.prod'),'ticket_tag': [] + item.fields.ticket_tag,
+          'broken_part':item.fields.summary | regex_search('(?i)(CPU|HARD_DRIVE|POWER_SUPPLY|MOTHERBOARD|DDR4_MEMORY|COOLING_FAN)')}
+          ]}}"
+      vars:
+        filtered: []
+        no_log: true
+      with_items:
+        - "{{ issue.meta.issues }}"
+
+    - name: Turn that Jira field data into variables
+      delegate_to: 127.0.0.1
+      add_host:
+        name: "{{ item.1 }}"
+        groups: ["hardware_rma"]
+        issues_size: "{{ filtered | map(attribute='fqdn') | flatten | select('equalto', item.1) | list |length }}"
+        get:
+          fqdn: "{{ item.0.fqdn }}"
+          broken_part: "{{ item.0.broken_part }}"
+          jira_ticket: "{{ item.0.jira_ticket }}"
+          ticket_tag: "{{ item.0.ticket_tag }}"
+          engineers_email: "{{ item.0.engineers_email }}"
+          engineers_name: "{{ item.0.name }}"
+      loop: "{{ filtered | subelements('fqdn') }}"
+      tags:
+        - always
+
+- name: Main
+  hosts: hardware_rma
+  gather_facts: false
+  vars_files:
+    - ../vars/credential_file.yml
+  tasks:
+    - name: Make a request to Sunbird DCIM per server for fields
+      block:
+        - name: Execute DCIM request
+          become: true
+          api.dcim:
+            username: {{ automated_username }}
+            token: "{{ access_token }}"
+            query:
+              hostname: "{{ fqdn }}"
+            fields:
+              - serial_tag
+              - manufacturer
+              - server_model
+              - suite
+              - rack_u_number
+              - rack
+              - warranty_status
+          register: database_return
+
+        - name: Create a variable for better readability
+          delegate_to: 127.0.0.1
+          set_fact:
+            server_name: "{{database_return['item'].keys()|list|first}}"
+      rescue:
+        - name: Failover for timeouts to database
+          include_tasks: error_failover.yml
+
+    - name: Pull logs from the dell server
+      block:
+        - name: clear the log execution queue just incase theres a previous task running
+          become: true
+          shell: |
+            PATH=$PATH:/opt/dell/srvadmin/sbin
+            bash -l racadm jobqueue delete -i JID_CLEARALL
+          register: loop_in_queue
+          until: loop_in_queue.stdout.find("JID_CLEARALL job(s) was cancelled by the user") != -1
+          retries: 5
+          delay: 25
+
+        - name: Create a log file
+          become: true
+          shell: |
+            PATH=$PATH:/opt/dell/srvadmin/sbin
+            bash -l racadm techsupreport collect -t SysInfo,TTYLog
+          register: create_log_loop
+          until: create_log_loop.stdout.find("initiated") != -1
+          retries: 5
+          delay: 60
+          ignore_errors: yes
+      rescue:
+        - name: Dell log failover
+          include_tasks: error_failover.yml
+      when: (database_return['item'][server_name].manufacturer == 'Dell')
+      
+    - name: Create log file for a hp server
+      become: true
+      shell: sudo /usr/sbin/ilorest serverlogs --selectlog=AHS
+      when: (database_return['assets'][serial].make == 'HP')
+
+    - name: Make requests to the HP API
+      include_tasks: hpe_api.yml
+      when: database_return['assets'][serial].make =='HP'   
+
+    - name: Make requests to the Dell API
+      include_tasks: dell_api.yml
+      when: database_return['assets'][serial].make =='Dell'
