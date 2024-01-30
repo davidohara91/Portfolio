@@ -15,7 +15,7 @@
   delegate_to: {{ server }}
   become: true
   template:
-    src: "ServiceRequest.json"
+    src: "hp_rma.json"
     dest: "/home/admin/hrma/{{get.jira_number}}.json"
   with_items: "{{ get }}"
 

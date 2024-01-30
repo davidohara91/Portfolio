@@ -1,7 +1,7 @@
 - name: Create the XML API file 
   delegate_to: {{ server }}
   template:
-    src: "CreateDispatchRequest.xml"
+    src: "dell_rma.xml"
     dest: "/home/admin/hrma/{{get.jira_ticket}}.xml"
   with_items: "{{ get }}"
 
