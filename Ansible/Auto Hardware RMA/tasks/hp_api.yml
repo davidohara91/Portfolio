@@ -1,0 +1,61 @@
+- name: Whats the time?
+  delegate_to: {{ server }}
+  shell: "date +%Y-%m-%d%H-%M-%S"
+  register: server_time
+
+- name: FORMAT TIME FOR HPE AHS LOG DYNAMIC NAME
+  set_fact:
+    hpe_log_time_format: "{{ server_time.start[0:4] }}{{ server_time.start[5:7] }}{{ server_time.start[8:10] }}"
+
+- name: Time format for the json file
+  set_fact:
+    time_json: "{{ server_time.start[0:19] }}"
+
+- name: Create the json API file
+  delegate_to: {{ server }}
+  become: true
+  template:
+    src: "hp_rma.json"
+    dest: "/home/admin/hrma/{{get.jira_number}}.json"
+  with_items: "{{ get }}"
+
+- name: Move the ahs log to the buffer
+  fetch:
+    src: /home/admin/hrma/HPE_{{ database_return['assets'][serial].fqdn | upper }}_{{ hpe_log_time_format }}.ahs
+    dest: buffer/
+    flat: yes
+
+- name: Move ahs log to server with API script
+  delegate_to: {{ server }}
+  become: true
+  copy:
+    src: buffer/HPE_{{ database_return['assets'][serial].fqdn | upper }}_{{ hpe_log_time_format }}.ahs
+    dest: /home/dcops/Automation/Parts-Order-Automation/HPE/LOGS
+  with_items:
+    - hardware_rma
+
+- name: Execute the API script
+  delegate_to: {{ server }}
+  become: True
+  shell: python3 /home/admin/hrma/api_rma_hp.py --agentkey "{{ key }}"
+  run_once: true
+
+- name: Read the log file to get the rma number
+  delegate_to: {{ server }}
+  shell: cat /home/admin/hrma{{ get.jira_ticket }}.log
+  register: api_return
+
+- name: Parse the rma number from the log file
+  set_fact:
+    rma_number: "{{ api_return.stdout_lines | regex_findall('[0-9]{10}') | unique }}"
+
+- name: Erase old data
+  delegate_to: {{ server }}
+  shell: |
+    cd /home/admin/hrma/
+    rm -rf {{ get.jira_ticket }}.log
+    rm -rf {{ get.jira_ticket }}.ahs
+    rm -rf {{get.jira_ticket}}.json
+
+- name: Update Jira and end the automation
+  include_tasks: jira.yml

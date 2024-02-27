@@ -1,0 +1,79 @@
+{
+  "Message": {
+    "TransactionName": "SERVICE REQUEST",
+    "RemoteAgentName": "SFDC_Train_REST_P048",
+    "StopOnConversion": "False",
+    "RemoteAgentType": "CUSTOMER",
+    "eCPControl": {
+      "ECPVersion": "1.0"
+    },
+    "SERVICE_INCIDENT": {
+      "RequesterID": "{{ get.jira_ticket_number }}",
+      "RequesterSeverity": "MEDIUM",
+      "ResponseTime": "{{ time_json }}",
+      "SERVICE_REQUESTER": {
+        "ORGANIZATION": {
+          "OrganizationName": "{{ company }}",
+          "ADDRESS": {
+            "AddressType": "PRIMARY",
+            "GeoAddress1": "{{ address.split(',')[0] | string }}",
+            "GeoAddress2": "{{ address.split(',')[1] | string }}",
+            "City": "{{ city }}",
+            "Region": "{{ state }}",
+            "PostalCode": "{{ postal_code }}",
+            "Country": "{{ country  }}"
+          }
+        },
+        "PERSON": {
+          "FirstName": "{{ get.jira_engineers_webname(' ')[0] }}",
+          "LastName": "{{ get.jira_engineers_webname(' ')[1] }}",
+          "ADDRESS": {
+            "AddressType": "PRIMARY",
+            "GeoAddress1": "{{ address.split(',')[0] | string }}",
+            "GeoAddress2": "{{ address.split(',')[1] | string }}",
+            "City": "{{ city }}",
+            "Region": "{{ state }}",
+            "PostalCode": "{{ postal_code }}",
+            "Country": "{{ country }}",
+            "LOCATION": [
+              {
+                "ID": "{{ dummy_phone }}",
+                "Type": "PRIMARY_VOICE"
+              },
+              {
+                "ID": "{{ get.jira_engineers_email }}",
+                "Type": "EMAIL"
+              }
+            ]
+          }
+        }
+      },
+      "AGREEMENT": {
+        "ContractID": "CN=",
+        "AgreementType": "SN={{ database_return['item'][serialtag].name }};PN="
+      },
+      "ACTIVITY": [
+        {
+          "ActionLog": "{{ action_log }}",
+          "LocalDate": "{{ get_local_date }}",
+          "ParameterList": "Service_Incident:Create"
+        }
+      ],
+      "PROBLEM": {
+        "EXPRESSION": {
+          "Relation": "AND",
+          "STATEMENT": [
+            {
+              "StatementRole": "DESCRIPTION",
+              "StatementText": "Hi, please send a {{ get.broken_part }} for HPE {{ database_return_search['item'][serialtag].model_name }} serial tag {{ database_return_search['item'][serialtag].name }}. Thanks"
+            },
+            {
+              "StatementRole": "TITLE",
+              "StatementText": "Broken {{ get.broken_part }} | Please send replacement {{ get.jira_ticket_number }}"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
